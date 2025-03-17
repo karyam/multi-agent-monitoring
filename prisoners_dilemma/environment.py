@@ -29,7 +29,7 @@ import immutabledict
 
 MAJOR_TIME_STEP = datetime.timedelta(minutes=10)
 MINOR_TIME_STEP = datetime.timedelta(seconds=10)
-SETUP_TIME = datetime.datetime(hour=9, year=2023, month=1, day=1)
+SETUP_TIME = datetime.datetime(hour=9, year=2023, month=1, day=1)   
 START_TIME = datetime.datetime(hour=10, year=2023, month=1, day=1)
 
 DECISION_SCENE_TYPE = 'decision'
@@ -87,6 +87,7 @@ class PDPayoff(component.Component):
         num_cooperators = sum(1 for action in joint_action.values() if action == "cooperate")
         
         payoffs = {}
+        #TODO: double-check
         for player_name, action in joint_action.items():
             if action == "cooperate":
                 # Cooperators get a positive payoff if everyone cooperates,
@@ -273,17 +274,7 @@ def configure_scenes(
     scenes = []
     
     # Create 5 rounds of conversation followed by decision
-    for i in range(5):
-        # Add conversation scene
-        scenes.append(
-            scene_lib.SceneSpec(
-                scene_type=conversation_scene_type,
-                start_time=START_TIME + i * datetime.timedelta(minutes=30),
-                participant_configs=main_player_configs,
-                num_rounds=1,
-            )
-        )
-        
+    for i in range(1):
         # Add decision scene
         scenes.append(
             scene_lib.SceneSpec(
@@ -327,56 +318,45 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
     
     def __init__(
         self, 
-        model: language_model.LanguageModel,  
+        gm_model: language_model.LanguageModel,
+        agent_model: language_model.LanguageModel,
         embedder: Callable[[str], np.ndarray],
         measurements: measurements_lib.Measurements,
         agent_module: types.ModuleType = basic_agent,
-        override_agent_model: language_model.LanguageModel | None = None,
-        resident_visitor_modules: Sequence[types.ModuleType] | None = None,
-        supporting_agent_module: types.ModuleType | None = None,
         seed: int | None = None,
     ):
         """Initialize the simulation."""
-        # Set up random generator
         self._rng = random.Random(seed)
         
-        # Set up agent module(s)
-        if resident_visitor_modules is None:
-            self._resident_visitor_mode = False
-            self._agent_module = agent_module
-        else:
-            self._resident_visitor_mode = True
-            self._resident_agent_module, self._visitor_agent_module = resident_visitor_modules
-        
-        # Set up models
-        self._agent_model = model
-        if override_agent_model:
-            self._agent_model = override_agent_model
-        self._model = model
+        self._agent_module = agent_module
+
+        self._agent_model = agent_model
+        self._gm_model = gm_model
+
         self._embedder = embedder
-        self._measurements = measurements
+
+        self._measurements = measurements 
         
-        # Set up clock
         self._clock = game_clock.MultiIntervalClock(
             start=SETUP_TIME, step_sizes=[MAJOR_TIME_STEP, MINOR_TIME_STEP]
         )
         
-        # Set up memory systems
-        importance_model = importance_function.ConstantImportanceModel()
+        importance_model_agent = importance_function.ConstantImportanceModel()
         importance_model_gm = importance_function.ConstantImportanceModel()
+
         self._blank_memory_factory = blank_memories.MemoryFactory(
-            model=self._model,
+            model=self._gm_model,
             embedder=self._embedder,
-            importance=importance_model.importance,
+            importance=importance_model_gm.importance,
             clock_now=self._clock.now,
         )
         
         # Get shared memories and context
-        shared_memories, shared_context = get_shared_memories_and_context(model)
+        shared_memories, shared_context = get_shared_memories_and_context(self._gm_model) #TODO
         
         # Create memory factory
         self._formative_memory_factory = formative_memories.FormativeMemoryFactory(
-            model=self._model,
+            model=self._gm_model,
             shared_memories=shared_memories,
             blank_memory_factory_call=self._blank_memory_factory.make_blank_memory,
         )
@@ -391,13 +371,10 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
             )
             for config in main_player_configs + supporting_player_configs
         }
-        self._all_memories = concurrency.run_tasks(tasks)
+        self._all_memories = concurrency.run_tasks(tasks) #TODO
         
         # Create player agents
         main_players = []
-        self._resident_names = []
-        self._visitor_names = []
-        
         for idx, player_config in enumerate(main_player_configs):
             kwargs = dict(
                 config=player_config,
@@ -407,28 +384,17 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
                 update_time_interval=MAJOR_TIME_STEP,
             )
             
-            if self._resident_visitor_mode:
-                if idx == 0:
-                    player = self._visitor_agent_module.build_agent(**kwargs)
-                    self._visitor_names.append(player.name)
-                else:
-                    player = self._resident_agent_module.build_agent(**kwargs)
-                    self._resident_names.append(player.name)
-            else:
-                player = self._agent_module.build_agent(**kwargs)
-                self._resident_names.append(player.name)
-                
+            player = self._agent_module.build_agent(**kwargs)
             main_players.append(player)
         
-        # No supporting players in this simulation
         self._all_players = main_players
         
         # Create game master
         self._primary_environment, self._game_master_memory = (
             basic_game_master.build_game_master(
-                model=self._model,
+                model=self._gm_model, #TODO: do we actually need llm
                 embedder=self._embedder,
-                importance_model=importance_model_gm,
+                importance_model=importance_model_gm, #TODO: do we actually need importance model
                 clock=self._clock,
                 players=self._all_players,
                 shared_memories=shared_memories,
@@ -505,10 +471,9 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
         """Run the simulation."""
         # Run all scenes in sequence
         html_results_log = basic_game_master.run_simulation(
-            model=self._model,
+            model=self._gm_model,
             players=self._all_players,
             primary_environment=self._primary_environment,
-            secondary_environments=self._secondary_environments,
             clock=self._clock,
             scenes=self._scenes,
             summarize_entire_episode_in_log=True,
@@ -519,11 +484,8 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
         
         # Create simulation outcome
         simulation_outcome = logging_lib.SimulationOutcome(
-            resident_scores=immutabledict.immutabledict(
-                {name: player_scores[name] for name in self._resident_names}
-            ),
-            visitor_scores=immutabledict.immutabledict(
-                {name: player_scores[name] for name in self._visitor_names}
+            agent_scores=immutabledict.immutabledict(
+                {name: player_scores[name] for name in self._agent_names}
             ),
             metadata=immutabledict.immutabledict({
                 'wallclock_time': datetime.datetime.now().strftime(
