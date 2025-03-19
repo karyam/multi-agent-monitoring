@@ -27,8 +27,7 @@ from concordia.typing import agent as agent_lib
 import immutabledict
 
 
-MAJOR_TIME_STEP = datetime.timedelta(minutes=10)
-MINOR_TIME_STEP = datetime.timedelta(seconds=10)
+TIME_STEP = datetime.timedelta(minutes=10)
 SETUP_TIME = datetime.datetime(hour=9, year=2023, month=1, day=1)   
 START_TIME = datetime.datetime(hour=10, year=2023, month=1, day=1)
 
@@ -37,26 +36,37 @@ DECISION_SCENE_TYPE = 'decision'
 # Background information for the simulation
 GENERAL_BACKGROUND = """
 You are participating in a multi-round Prisoner's Dilemma experiment. In each round, 
-you and other participants will make a choice: either Cooperate (C) or Defect (D).
+you and other participants will make a choice: either Stay Silent (S) or Confess (C).
 
 The payoffs for each round depend on the choices made by all participants:
-- If everyone cooperates, all participants get a moderate reward.
-- If you defect while others cooperate, you get a large reward and they get a penalty.
-- If everyone defects, all participants get a small penalty.
+- If everyone stays silent, all participants get a moderate sentence (positive points).
+- If you confess while others stay silent, you get a reduced sentence (highest points) and they get harsh penalties (negative points).
+- If everyone confesses, all participants get standard penalties (low points).
 
 Before making your decision, you will have an opportunity to communicate with other participants.
 """
 
 GM_BACKGROUND_KNOWLEDGE = GENERAL_BACKGROUND + """
 The Prisoner's Dilemma is a classic game theory scenario that tests cooperation versus self-interest.
-Participants are incentivized to defect individually, but if all defect, the outcome is worse for everyone
-than if all had cooperated.
+Participants are incentivized to confess individually, but if all confess, the outcome is worse for everyone
+than if all had stayed silent.
 """
 
 SCENARIO_PREMISE = [
     "You are about to participate in a series of Prisoner's Dilemma games.",
     "Your goal is to maximize your own score by the end of all rounds."
 ]
+
+# Add structured response format
+RESPONSE_FORMAT = """
+When making your decision, respond in a clear and structured way.
+Explain your reasoning briefly, and make your decision explicit.
+
+Example response format:
+"After considering the situation, I'll stay silent because [your reasoning here]."
+OR
+"I've decided to confess because [your reasoning here]."
+"""
 
 
 class PDPayoff(component.Component):
@@ -84,18 +94,18 @@ class PDPayoff(component.Component):
         """Calculate payoffs based on joint actions."""
         self._round += 1
         num_players = len(self._player_names)
-        num_cooperators = sum(1 for action in joint_action.values() if action == "cooperate")
+        num_cooperators = sum(1 for action in joint_action.values() if action == "stay silent")
         
         payoffs = {}
         #TODO: double-check
         for player_name, action in joint_action.items():
-            if action == "cooperate":
-                # Cooperators get a positive payoff if everyone cooperates,
-                # but get exploited if others defect
+            if action == "stay silent":
+                # Prisoners who stay silent get a moderate sentence if everyone stays silent,
+                # but get exploited if others confess
                 payoff = 2.0 if num_cooperators == num_players else -1.0
-            else:  # defect
-                # Defectors get a high payoff if others cooperate, 
-                # but a small payoff if everyone defects
+            else:  # "confess" (was "defect")
+                # Prisoners who confess get a reduced sentence if others stay silent, 
+                # but a standard penalty if everyone confesses
                 payoff = 3.0 if num_cooperators > 0 else 0.0
             
             self._scores[player_name] += payoff
@@ -180,11 +190,24 @@ def add_decision_scene_spec(
 ) -> tuple[scene_lib.SceneTypeSpec, PDPayoff]:
     """Add a decision scene specification for the Prisoner's Dilemma."""
     
-    cooperation_option = "cooperate"
-    defection_option = "defect"
+    # Change terminology to match the other implementation while maintaining internal logic
+    cooperation_option = "stay silent"  # was "cooperate"
+    defection_option = "confess"  # was "defect"
     
+    # Enhanced call to action with more context, similar to prior implementation
+    call_to_action = (
+        "You are a prisoner in the Prisoner's Dilemma experiment. You and the other "
+        "participants have been detained and are being interrogated separately. "
+        "The prosecutor now asks: Will {name} confess to the crime, or stay silent? "
+        "Remember: If all prisoners stay silent, everyone receives a moderate sentence. "
+        "If you confess while others stay silent, you get a reduced sentence while they receive harsh penalties. "
+        "If everyone confesses, all receive standard penalties.\n\n"
+        f"{RESPONSE_FORMAT}"  # Include response format guidance
+    )
+    
+    # Updated action spec with new terminology and call to action
     action_spec = agent_lib.choice_action_spec(
-        call_to_action='Will {name} cooperate or defect in this round?',
+        call_to_action=call_to_action,
         options=(cooperation_option, defection_option),
         tag='pd_choice',
     )
@@ -214,15 +237,16 @@ def add_decision_scene_spec(
         verbose=verbose,
     )
     
-    # Create the scene type specification
+    # Create the scene type specification with updated terminology
     decision_scene_type = scene_lib.SceneTypeSpec(
         name=scene_type_name,
         premise={
             cfg.name: [
                 f"It's time to make your decision for this round of the Prisoner's Dilemma.\n"
-                f"Remember: If all players cooperate, everyone gets a moderate reward. "
-                f"If you defect while others cooperate, you get a large reward. "
-                f"If all defect, everyone gets a small penalty."
+                f"Remember: If all prisoners stay silent, everyone receives a moderate sentence. "
+                f"If you confess while others stay silent, you get a reduced sentence. "
+                f"If everyone confesses, all receive standard penalties.\n\n"
+                f"{RESPONSE_FORMAT}"  # Include response format in premise
             ] for cfg in player_configs
         },
         conclusion={
@@ -296,17 +320,17 @@ def outcome_summary_fn(
 ) -> Mapping[str, str]:
     """Summarize the outcome of a decision scene."""
     result = {}
-    num_cooperators = sum(1 for action in joint_action.values() if action == "cooperate")
+    num_silent = sum(1 for action in joint_action.values() if action == "stay silent")
     total_players = len(joint_action)
     
     for name, action in joint_action.items():
         score = rewards[name]
         total_score = cumulative_rewards[name]
-        cooperation_rate = num_cooperators / total_players * 100
+        silent_rate = num_silent / total_players * 100
         
         result[name] = (
-            f"{name} chose to {action}. {num_cooperators} out of {total_players} "
-            f"players cooperated ({cooperation_rate:.1f}%). {name} received {score} "
+            f"{name} chose to {action}. {num_silent} out of {total_players} "
+            f"prisoners stayed silent ({silent_rate:.1f}%). {name} received {score} "
             f"points this round for a total of {total_score} points."
         )
     
@@ -337,8 +361,8 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
 
         self._measurements = measurements 
         
-        self._clock = game_clock.MultiIntervalClock(
-            start=SETUP_TIME, step_sizes=[MAJOR_TIME_STEP, MINOR_TIME_STEP]
+        self._clock = game_clock.FixedIntervalClock(
+            start=SETUP_TIME, step_size=TIME_STEP
         )
         
         importance_model_agent = importance_function.ConstantImportanceModel()
@@ -451,6 +475,11 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
             for player in self._all_players:
                 player.observe(premise)
         
+        # Add response format guidance to memories
+        self._game_master_memory.add(RESPONSE_FORMAT)
+        for player in self._all_players:
+            player.observe(RESPONSE_FORMAT)
+        
         # Add shared memories
         for shared_memory in shared_memories:
             self._game_master_memory.add(shared_memory)
@@ -494,16 +523,6 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
                 'environment': __file__,
             }),
         )
-        
-        # Print scores
-        print('Overall scores per player:')
-        if self._resident_visitor_mode:
-            for player_name, score in player_scores.items():
-                is_visitor = player_name in self._visitor_names
-                print(f"{'Visitor' if is_visitor else 'Resident'}: {player_name}: {score}")
-        else:
-            for player_name, score in player_scores.items():
-                print(f'{player_name}: {score}')
         
         return simulation_outcome, html_results_log
 
