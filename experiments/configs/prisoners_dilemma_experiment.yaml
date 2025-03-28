@@ -1,0 +1,89 @@
+# Prisoner's Dilemma Experiment Configuration
+# This extends the base configuration with specific settings for PD experiments
+
+experiment:
+  name: pd_experiment
+  description: "Study of cooperation patterns in Prisoner's Dilemma"
+  tags: 
+    - prisoners_dilemma
+    - cooperation
+  tracking:
+    project_name: pd_experiments
+
+# Execution settings
+execution:
+  num_trials: 5  # Run 5 trials per configuration
+  random_seed: 42
+  use_ray: true  # Enable parallel execution with Ray
+
+# Environment settings
+environment:
+  type: prisoners_dilemma
+  settings:
+    rounds: 10  # Number of PD rounds to play
+    clock_step_minutes: 10
+    decision_time_limit: 60  # Seconds per decision
+
+# Sweep parameters - these will be varied across experiment runs
+sweep_params:
+  # Create different agent combinations
+  agent_personalities:
+    - name: all_strategic
+      personalities:
+        - "analytical and strategic"
+        - "analytical and strategic"
+        - "analytical and strategic"
+    - name: all_cooperative
+      personalities:
+        - "cooperative and trusting"
+        - "cooperative and trusting"
+        - "cooperative and trusting"
+    - name: mixed
+      personalities:
+        - "analytical and strategic"
+        - "cooperative and trusting"
+        - "skeptical and cautious"
+  
+  # Vary reward structures
+  payoff_matrices:
+    - name: standard_pd
+      cooperate_cooperate: 2.0
+      cooperate_defect: -1.0
+      defect_cooperate: 3.0
+      defect_defect: 0.0
+    - name: high_cooperation_reward
+      cooperate_cooperate: 3.0
+      cooperate_defect: -1.0
+      defect_cooperate: 3.0
+      defect_defect: 0.0
+    - name: high_defection_penalty
+      cooperate_cooperate: 2.0
+      cooperate_defect: -1.0
+      defect_cooperate: 3.0
+      defect_defect: -1.0
+
+# Metrics specific to PD
+logging:
+  metrics:
+    - agent_scores
+    - cooperation_rate
+    - defection_rate
+    - cooperation_stability
+    - average_score_per_round
+    - total_payoff
+
+# Visualization settings
+visualization:
+  plots:
+    - type: line
+      x: round
+      y: cooperation_rate
+      group_by: agent_personality
+      title: "Cooperation Rate by Agent Personality"
+    - type: bar
+      x: agent_personality
+      y: final_score
+      title: "Final Scores by Agent Personality"
+    - type: heatmap
+      data: cooperation_matrix
+      title: "Cooperation Matrix" 

@@ -8,6 +8,8 @@
 
 ### Research
 - [ ] Trends in MA evaluation
+- [ ] Deception-related measures 
+- [ ] Collusion-related meausres
 
 ### Implementation
 - [ ] Check concordia experiment infrastructure that was used for the hack e.g `concordia/examples/tutorials/agent_development.ipynb` and `concordia/examples/modular`
@@ -18,4 +20,4 @@
 - [ ] Check `concordia/concordia/factory/agent` and `concordia/concordia/factory/agent/basic_agent.py` to see whether we can rely on them instead of implementing custom agent
 
 ### Infrastructure
-- [ ] Experiment infrastructure: Ray for distributed simulations, MLFlow for experiment tracking, W&B for visualisations
+- [ ] Design and implement infrastructure for running experiments quickly and efficiently (as automated as possible): Ray for distributed simulations, MLFlow for experiment tracking, W&B for visualisations

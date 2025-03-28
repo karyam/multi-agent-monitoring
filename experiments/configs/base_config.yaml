@@ -1,0 +1,75 @@
+# Base configuration for all experiments
+# This serves as the default configuration that specific experiments can override
+
+# Experiment metadata
+experiment:
+  name: default_experiment
+  description: Default experiment configuration
+  tags: []
+  tracking:
+    enabled: true
+    platform: mlflow  # Options: mlflow, wandb, none
+    project_name: multi-agent-monitoring
+    log_artifacts: true
+    log_system_info: true
+
+# Execution settings
+execution:
+  parallel: false
+  num_workers: 1
+  num_trials: 3
+  random_seed: 42
+  use_ray: false
+  debug_mode: false
+
+# Model settings
+model:
+  agent_model:
+    name: gpt-3.5-turbo
+    system_prompt: "You are a rational agent participating in a multi-agent game."
+    max_tokens: 500
+  gm_model:
+    name: gpt-3.5-turbo
+    system_prompt: "You are managing a multi-agent game environment."
+    max_tokens: 500
+
+# Environment settings
+environment:
+  type: prisoners_dilemma  # The environment type to use
+  settings:
+    rounds: 5
+    clock_step_minutes: 10
+    # Add other environment-specific settings
+
+# Agent settings
+agents:
+  num_agents: 3
+  agent_module: null  # If null, uses the default agent module
+  personalities:
+    - "analytical and strategic"
+    - "cooperative and trusting" 
+    - "skeptical and cautious"
+    
+# Logging settings
+logging:
+  level: INFO
+  log_to_file: true
+  metrics:
+    - agent_scores
+    - cooperation_rate
+    - final_score
+  custom_metrics: []
+
+# Visualization settings
+visualization:
+  enabled: true
+  plots:
+    - type: line
+      x: round
+      y: score
+      group_by: agent_name
+    - type: heatmap
+      data: cooperation_matrix
+  save_format:
+    - png
+    - pdf 
