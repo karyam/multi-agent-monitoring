@@ -1,25 +1,34 @@
 # Base configuration for all experiments
-# This serves as the default configuration that specific experiments can override
 
 # Experiment metadata
 experiment:
   name: default_experiment
   description: Default experiment configuration
-  tags: []
   tracking:
     enabled: true
-    platform: mlflow  # Options: mlflow, wandb, none
+    platform: wandb  # Options: mlflow, wandb, none
     project_name: multi-agent-monitoring
     log_artifacts: true
     log_system_info: true
 
 # Execution settings
 execution:
+  # Whether to run the experiment in parallel
   parallel: false
+  
+  # Number of worker processes to use for parallel execution
   num_workers: 1
+  
+  # Number of trials to run for the experiment
   num_trials: 3
+  
+  # Random seed for reproducibility
   random_seed: 42
+  
+  # Whether to use Ray for parallel execution
   use_ray: false
+  
+  # Enable debug mode for detailed logging and error messages
   debug_mode: false
 
 # Model settings
@@ -35,20 +44,23 @@ model:
 
 # Environment settings
 environment:
-  type: prisoners_dilemma  # The environment type to use
+  type: prisoners_dilemma  # The environment type to use e.g. state_formation, cyber_security, prisoners_dilemma
   settings:
     rounds: 5
-    clock_step_minutes: 10
     # Add other environment-specific settings
 
 # Agent settings
 agents:
   num_agents: 3
   agent_module: null  # If null, uses the default agent module
-  personalities:
-    - "analytical and strategic"
-    - "cooperative and trusting" 
-    - "skeptical and cautious"
+
+# Evaluation settings
+evaluation:
+  metrics:
+    - cooperation_rate
+    - feature_score
+  # File path to properties of interest
+  properties: null
     
 # Logging settings
 logging:
@@ -57,19 +69,8 @@ logging:
   metrics:
     - agent_scores
     - cooperation_rate
-    - final_score
+    - feature_scores
   custom_metrics: []
 
 # Visualization settings
-visualization:
-  enabled: true
-  plots:
-    - type: line
-      x: round
-      y: score
-      group_by: agent_name
-    - type: heatmap
-      data: cooperation_matrix
-  save_format:
-    - png
-    - pdf 
+# TBD based on what wandb provides
