@@ -1,4 +1,3 @@
-from concordia import component
 from concordia import scenarios_lib
 from concordia import logging_lib
 from concordia import language_model
@@ -133,12 +132,9 @@ def get_shared_memories_and_context(
     return shared_memories, shared_context
 
 
-def configure_players(rng: random.Random) -> tuple[
-    list[formative_memories.AgentConfig],
-    list[formative_memories.AgentConfig],
-]:
-    """Configure the players for the simulation."""
-    player_configs = []
+def configure_agents(rng: random.Random) -> list[formative_memories.AgentConfig]:
+    """Configure the agents for the simulation."""
+    agent_configs = []
     
     # Create a set of players with different tendencies
     player_traits = [
@@ -147,10 +143,10 @@ def configure_players(rng: random.Random) -> tuple[
         "skeptical and cautious"
     ]
     
-    player_names = ["Alex", "Blake", "Casey"]
+    player_names = ["A1", "A2", ""]
     
     for i, (name, trait) in enumerate(zip(player_names, player_traits)):
-        player_configs.append(
+        agent_configs.append(
             formative_memories.AgentConfig(
                 name=name,
                 gender='',  # Leave blank or randomize
@@ -170,15 +166,8 @@ def configure_players(rng: random.Random) -> tuple[
                 },
             )
         )
-    
-    main_player_configs = [
-        player for player in player_configs if player.extras['main_character']
-    ]
-    supporting_player_configs = [
-        player for player in player_configs if not player.extras['main_character']
-    ]
 
-    return main_player_configs, supporting_player_configs
+    return agent_configs
 
 
 def add_decision_scene_spec(
@@ -349,16 +338,12 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
         embedder: Callable[[str], np.ndarray],
         measurements: measurements_lib.Measurements,
         agent_module: types.ModuleType = basic_agent,
-        seed: int | None = None,
     ):
-        """Initialize the simulation."""
-        self._rng = random.Random(seed)
-        
+        """Initialize the simulation.""" 
         self._agent_module = agent_module
 
         self._agent_model = agent_model
         self._gm_model = gm_model
-
         self._embedder = embedder
 
         self._measurements = measurements 
@@ -369,6 +354,7 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
         
         # Define importance model for game master
         importance_model_gm = importance_function.ConstantImportanceModel()
+        
         self._blank_memory_factory = blank_memories.MemoryFactory(
             model=self._gm_model,
             embedder=self._embedder,
@@ -387,20 +373,20 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
         )
         
         # Configure players
-        main_player_configs, supporting_player_configs = configure_players(self._rng)
+        player_configs = configure_agents()
         
         # Create memories for players
         tasks = {
             config.name: functools.partial(
                 self._make_player_memories, config=config
             )
-            for config in main_player_configs + supporting_player_configs
+            for config in player_configs
         }
-        self._all_memories = concurrency.run_tasks(tasks) #TODO
+        self._all_memories = concurrency.run_tasks(tasks)
         
         # Create player agents
-        main_players = []
-        for idx, player_config in enumerate(main_player_configs):
+        players = []
+        for player_config in player_configs:
             kwargs = dict(
                 config=player_config,
                 model=copy.copy(self._agent_model),
@@ -410,16 +396,16 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
             )
             
             player = self._agent_module.build_agent(**kwargs)
-            main_players.append(player)
+            players.append(player)
         
-        self._all_players = main_players
+        self._all_players = players
         
         # Create game master
-        self._primary_environment, self._game_master_memory = (
+        self._environment, self._game_master_memory = (
             basic_game_master.build_game_master(
-                model=self._gm_model, #TODO: do we actually need llm
+                model=self._gm_model,
                 embedder=self._embedder,
-                importance_model=importance_model_gm, #TODO: do we actually need importance model
+                importance_model=importance_model_gm,
                 clock=self._clock,
                 players=self._all_players,
                 shared_memories=shared_memories,
@@ -434,18 +420,20 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
             game_master_memory=self._game_master_memory,
             players=self._all_players,
             clock=self._clock,
-            main_player_configs=main_player_configs,
-            rng=self._rng,
+            main_player_configs=agent_configs,
         )
         
-        self._pd_payoff = pd_payoff
-        self._secondary_environments = [decision_env]
+        self._payoff = SchellingPayoff(
+            player_names=player_names,
+            model=self._gm_model,
+            memory=self._game_master_memory,
+            clock_now=self._clock.now,
+        )
         
         # Initialize memories
         self._init_premise_memories(
             setup_time=SETUP_TIME,
-            main_player_configs=main_player_configs,
-            supporting_player_configs=supporting_player_configs,
+            main_player_configs=agent_configs,
             shared_memories=shared_memories,
             scenario_premise=SCENARIO_PREMISE,
         )
@@ -508,7 +496,7 @@ class Simulation(scenarios_lib.RunnableSimulationWithMemories):
             scenes=self._scenes,
             summarize_entire_episode_in_log=True,
         )
-        
+            
         # Get final scores
         player_scores = self._pd_payoff.get_scores()
         
